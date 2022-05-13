@@ -1,0 +1,17 @@
+{
+  "C_Cpp.intelliSenseEngine": "Tag Parser",
+  "idf.port": "/dev/ttyUSB0",
+  "idf.adapterTargetName": "esp32c3",
+  "idf.openOcdConfigs": [
+    "board/esp32c3-ftdi.cfg"
+  ],
+  "idf.flashType": "UART",
+  "files.associations": {
+    ".sequelizerc": "javascript",
+    ".stylelintrc": "json",
+    ".prettierrc": "json",
+    "*.tsx": "typescriptreact",
+    ".env.*": "dotenv",
+    "*.ipp": "c"
+  }
+}
