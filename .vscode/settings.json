@@ -1,9 +1,10 @@
 {
   "C_Cpp.intelliSenseEngine": "Tag Parser",
   "idf.port": "/dev/ttyUSB0",
-  "idf.adapterTargetName": "esp32c3",
+  "idf.adapterTargetName": "esp32",
   "idf.openOcdConfigs": [
-    "board/esp32c3-ftdi.cfg"
+    "interface/ftdi/esp32_devkitj_v1.cfg",
+    "target/esp32.cfg"
   ],
   "idf.flashType": "UART",
   "files.associations": {
@@ -12,6 +13,21 @@
     ".prettierrc": "json",
     "*.tsx": "typescriptreact",
     ".env.*": "dotenv",
-    "*.ipp": "c"
+    "*.ipp": "c",
+    "gpio.h": "c",
+    "task.h": "c",
+    "freertos.h": "c",
+    "timer.h": "c",
+    "esp_log.h": "c",
+    "array": "cpp",
+    "deque": "cpp",
+    "list": "cpp",
+    "string": "cpp",
+    "unordered_map": "cpp",
+    "vector": "cpp",
+    "string_view": "cpp",
+    "initializer_list": "cpp",
+    "regex": "cpp",
+    "*.tcc": "cpp"
   }
 }

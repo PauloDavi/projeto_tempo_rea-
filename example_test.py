@@ -1,43 +1,89 @@
-#!/usr/bin/env python
+from __future__ import print_function
 
-from __future__ import division, print_function, unicode_literals
-
-import hashlib
-import os
 import re
 
 import ttfw_idf
-from tiny_test_fw import Utility
+
+STARTING_TIMERS_REGEX = re.compile(r'Started timers, time since boot: (\d+) us')
+
+# name, period, next_alarm, times_started, times_fired, times_skipped, cb_exec_time
+TIMER_DUMP_LINE_REGEX = re.compile(r'([\w-]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)')
+
+PERIODIC_TIMER_REGEX = re.compile(r'Periodic timer called, time since boot: (\d+) us')
+
+LIGHT_SLEEP_ENTER_REGEX = re.compile(r'Entering light sleep for 0\.5s, time since boot: (\d+) us')
+LIGHT_SLEEP_EXIT_REGEX = re.compile(r'Woke up from light sleep, time since boot: (\d+) us')
+
+ONE_SHOT_REGEX = re.compile(r'One\-shot timer called, time since boot: (\d+) us')
+
+RESTART_REGEX = re.compile(r'Restarted periodic timer with 1s period, time since boot: (\d+) us')
+
+STOP_REGEX = re.compile(r'Stopped and deleted timers')
+
+INITIAL_TIMER_PERIOD = 500000
+FINAL_TIMER_PERIOD = 1000000
+LIGHT_SLEEP_TIME = 500000
+ONE_SHOT_TIMER_PERIOD = 5000000
 
 
-def verify_elf_sha256_embedding(dut):
-    elf_file = os.path.join(dut.app.binary_path, 'blink.elf')
-    sha256 = hashlib.sha256()
-    with open(elf_file, 'rb') as f:
-        sha256.update(f.read())
-    sha256_expected = sha256.hexdigest()
-
-    dut.reset()
-    sha256_reported = dut.expect(re.compile(r'ELF file SHA256:\s+([a-f0-9]+)'), timeout=5)[0]
-
-    Utility.console_log('ELF file SHA256: %s' % sha256_expected)
-    Utility.console_log('ELF file SHA256 (reported by the app): %s' % sha256_reported)
-    # the app reports only the first several hex characters of the SHA256, check that they match
-    if not sha256_expected.startswith(sha256_reported):
-        raise ValueError('ELF file SHA256 mismatch')
-
-
-@ttfw_idf.idf_example_test(env_tag='Example_GENERIC', target=['esp32', 'esp32c3'])
-def test_examples_blink(env, extra_data):
-    dut = env.get_dut('blink', 'examples/get-started/blink')
-    binary_file = os.path.join(dut.app.binary_path, 'blink.bin')
-    bin_size = os.path.getsize(binary_file)
-    ttfw_idf.log_performance('blink_bin_size', '{}KB'.format(bin_size // 1024))
-
+@ttfw_idf.idf_example_test(env_tag='Example_GENERIC', target=['esp32','esp32s2','esp32c3','esp32s3'])
+def test_examples_system_esp_timer(env, extra_data):
+    dut = env.get_dut('esp_timer_example', 'examples/system/esp_timer')
+    # start test
     dut.start_app()
+    groups = dut.expect(STARTING_TIMERS_REGEX, timeout=30)
+    start_time = int(groups[0])
+    print('Start time: {} us'.format(start_time))
 
-    verify_elf_sha256_embedding(dut)
+    groups = dut.expect(TIMER_DUMP_LINE_REGEX, timeout=2)
+    assert(groups[0] == 'periodic' and int(groups[1]) == INITIAL_TIMER_PERIOD)
+    groups = dut.expect(TIMER_DUMP_LINE_REGEX, timeout=2)
+    assert(groups[0] == 'one-shot' and int(groups[1]) == 0)
+
+    for i in range(0, 5):
+        groups = dut.expect(PERIODIC_TIMER_REGEX, timeout=2)
+        cur_time = int(groups[0])
+        diff = start_time + (i + 1) * INITIAL_TIMER_PERIOD - cur_time
+        print('Callback #{}, time: {} us, diff: {} us'.format(i, cur_time, diff))
+        assert(abs(diff) < 100)
+
+    groups = dut.expect(ONE_SHOT_REGEX, timeout=3)
+    one_shot_timer_time = int(groups[0])
+    diff = start_time + ONE_SHOT_TIMER_PERIOD - one_shot_timer_time
+    print('One-shot timer, time: {} us, diff: {}'.format(one_shot_timer_time, diff))
+    assert(abs(diff) < 220)
+
+    groups = dut.expect(RESTART_REGEX, timeout=3)
+    start_time = int(groups[0])
+    print('Timer restarted, time: {} us'.format(start_time))
+
+    for i in range(0, 5):
+        groups = dut.expect(PERIODIC_TIMER_REGEX, timeout=2)
+        cur_time = int(groups[0])
+        diff = start_time + (i + 1) * FINAL_TIMER_PERIOD - cur_time
+        print('Callback #{}, time: {} us, diff: {} us'.format(i, cur_time, diff))
+        assert(abs(diff) < 100)
+
+    groups = dut.expect(LIGHT_SLEEP_ENTER_REGEX, timeout=2)
+    sleep_enter_time = int(groups[0])
+    groups = dut.expect(LIGHT_SLEEP_EXIT_REGEX, timeout=2)
+    sleep_exit_time = int(groups[0])
+    sleep_time = sleep_exit_time - sleep_enter_time
+
+    print('Enter sleep: {}, exit sleep: {}, slept: {}'.format(
+        sleep_enter_time, sleep_exit_time, sleep_time))
+
+    assert(abs(sleep_time - LIGHT_SLEEP_TIME) < 1000)
+
+    for i in range(5, 7):
+        groups = dut.expect(PERIODIC_TIMER_REGEX, timeout=2)
+        cur_time = int(groups[0])
+        diff = abs(start_time + (i + 1) * FINAL_TIMER_PERIOD - cur_time)
+        print('Callback #{}, time: {} us, diff: {} us'.format(i, cur_time, diff))
+        assert(diff < 100)
+
+    dut.expect(STOP_REGEX, timeout=2)
 
 
 if __name__ == '__main__':
-    test_examples_blink()
+    test_examples_system_esp_timer()
