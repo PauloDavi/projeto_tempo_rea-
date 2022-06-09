@@ -9,19 +9,21 @@ static const char* TAG = "exmple";
 
 void stepper_move(void* pvParameters) {
   Stepper stepper(
-      GPIO_NUM_13,
+      GPIO_NUM_12,
       GPIO_NUM_14,
       GPIO_NUM_15,
       32,
       1.8,
-      4.2);
+      4.07);
 
   stepper.begin();
 
-  stepper.move(0, 100000, 1000);
-
   for (;;) {
-    vTaskDelay(portMAX_DELAY);
+    stepper.move(10, 359);
+    vTaskDelay(1000 * 2 / portTICK_PERIOD_MS);
+
+    stepper.move(30, 0);
+    vTaskDelay(1000 * 2 / portTICK_PERIOD_MS);
   }
 }
 

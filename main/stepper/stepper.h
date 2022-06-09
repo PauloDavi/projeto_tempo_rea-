@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdlib.h>
 
 #include "driver/gpio.h"
@@ -12,6 +13,8 @@
 #include "soc/mcpwm_reg.h"
 #include "soc/mcpwm_struct.h"
 #include "soc/rtc.h"
+
+static mcpwm_dev_t* MCPWM[2] = {&MCPWM0, &MCPWM1};
 
 typedef enum {
   STEPPER_MOTOR_STOPPED,
@@ -44,7 +47,7 @@ class Stepper {
   void begin();
   void real_isr_handler();
   static void isr_handler(void* arg);
-  void move(int initial_step, int delta_time, int final_step);
+  void move(int delta_time, float final_step);
 
  private:
   isr_state_t isr_is_running;
@@ -62,6 +65,10 @@ class Stepper {
   stepper_status_t motor_status = STEPPER_MOTOR_STOPPED;
   stepper_direction_t direction = STEPPER_MOTOR_DIRECTION_FORWARD;
 
+  uint32_t duty_in_50_per_100;
+
+  int current_step = 0;
+  int current_direction = 1;
   int microsteps;
   float step;
   float reduction;
@@ -72,8 +79,5 @@ class Stepper {
   volatile int p;
   volatile int dx;
   volatile int dy;
-  volatile int x;
   volatile int y;
-  volatile int twoDy;
-  volatile int twoDyDx;
 };
