@@ -6,7 +6,8 @@ Stepper::Stepper(
     gpio_num_t enable_pin_number,
     int microsteps,
     float step,
-    float reduction) {
+    float reduction,
+    int frequency = 10 * 1000) {
   this->step_pin = step_pin_number;
   this->direction_pin = direction_pin_number;
   this->enable_pin = enable_pin_number;
@@ -14,8 +15,9 @@ Stepper::Stepper(
   this->step = step;
   this->reduction = reduction;
   this->isr_is_running = NOT_MOVE_TO_DO;
-  this->angle_per_pulse = step / microsteps / reduction;
+  this->angle_per_pulse = step / (microsteps / reduction);
   this->duty_in_50_per_100 = mcpwm_ll_timer_get_peak(MCPWM[this->mcpwm_unit], this->mcpwm_timer, false) * 50 / 100;
+  this->frequency = frequency;
 
   this->wait_isr_semaphore = xSemaphoreCreateBinary();
   xSemaphoreGive(this->wait_isr_semaphore);
@@ -34,8 +36,8 @@ void Stepper::begin() {
   mcpwm_gpio_init(this->mcpwm_unit, this->mcpwm_io_signals_pwm, this->step_pin);
 
   mcpwm_config_t pwm_config;
-  pwm_config.frequency = 10 * 1000;
-  pwm_config.cmpr_a = 50;
+  pwm_config.frequency = this->frequency;
+  pwm_config.cmpr_a = 0;
   pwm_config.counter_mode = MCPWM_UP_COUNTER;
   pwm_config.duty_mode = MCPWM_DUTY_MODE_0;
 
@@ -93,7 +95,7 @@ void Stepper::move(int time_in_seconds, float final_angle) {
       this->current_direction = 1;
     }
 
-    this->dx = time_in_seconds * 10000;
+    this->dx = time_in_seconds * this->frequency;
     this->dy = int((abs(current_angle - final_angle) / this->angle_per_pulse) + 0.5);
 
     this->p = -this->dx / 2;

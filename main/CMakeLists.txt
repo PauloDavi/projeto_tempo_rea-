@@ -1,2 +1,2 @@
-idf_component_register(SRCS "main.cpp" "stepper/stepper.cpp"
+idf_component_register(SRCS "main.cpp" "encoder/encoder.cpp"
                        INCLUDE_DIRS ".")

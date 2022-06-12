@@ -28,6 +28,9 @@
     "string_view": "cpp",
     "initializer_list": "cpp",
     "regex": "cpp",
-    "*.tcc": "cpp"
+    "*.tcc": "cpp",
+    "atomic": "cpp",
+    "future": "cpp",
+    "system_error": "cpp"
   }
 }
