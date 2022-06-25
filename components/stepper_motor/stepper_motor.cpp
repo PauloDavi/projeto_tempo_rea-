@@ -1,6 +1,8 @@
-#include "stepper.h"
+#include "stepper_motor.h"
 
-Stepper::Stepper(
+static mcpwm_dev_t* MCPWM[2] = {&MCPWM0, &MCPWM1};
+
+StepperMotor::StepperMotor(
     gpio_num_t step_pin_number,
     gpio_num_t direction_pin_number,
     gpio_num_t enable_pin_number,
@@ -29,11 +31,11 @@ Stepper::Stepper(
       (1ULL << this->direction_pin) |
       (1ULL << this->enable_pin);
 
-  gpio_config(&io_conf);
+  ESP_ERROR_CHECK(gpio_config(&io_conf));
 }
 
-void Stepper::begin() {
-  mcpwm_gpio_init(this->mcpwm_unit, this->mcpwm_io_signals_pwm, this->step_pin);
+void StepperMotor::begin() {
+  ESP_ERROR_CHECK(mcpwm_gpio_init(this->mcpwm_unit, this->mcpwm_io_signals_pwm, this->step_pin));
 
   mcpwm_config_t pwm_config;
   pwm_config.frequency = this->frequency;
@@ -41,20 +43,27 @@ void Stepper::begin() {
   pwm_config.counter_mode = MCPWM_UP_COUNTER;
   pwm_config.duty_mode = MCPWM_DUTY_MODE_0;
 
-  mcpwm_init(this->mcpwm_unit, this->mcpwm_timer, &pwm_config);
-  mcpwm_isr_register(this->mcpwm_unit, this->isr_handler, this, ESP_INTR_FLAG_IRAM, NULL);
+  ESP_ERROR_CHECK(mcpwm_init(this->mcpwm_unit, this->mcpwm_timer, &pwm_config));
+  ESP_ERROR_CHECK(mcpwm_isr_register(this->mcpwm_unit, this->isr_handler, this, ESP_INTR_FLAG_IRAM, NULL));
   mcpwm_ll_intr_enable_timer_tez(MCPWM[this->mcpwm_unit], this->mcpwm_timer, true);
 }
 
-void IRAM_ATTR Stepper::isr_handler(void* arg) {
-  Stepper* stepper = (Stepper*)arg;
-  stepper->real_isr_handler();
+void IRAM_ATTR StepperMotor::isr_handler(void* arg) {
+  stepper_motor* stepper_motor = (StepperMotor*)arg;
+  stepper_motor->real_isr_handler();
 }
 
-void Stepper::real_isr_handler() {
+void StepperMotor::real_isr_handler() {
   mcpwm_ll_intr_clear_timer_tez_status(MCPWM[this->mcpwm_unit], 1);
 
   if (this->isr_is_running == NOT_MOVE_TO_DO) {
+    return;
+  }
+
+  if (this->isr_is_running == MOVEMENT_CANCELED) {
+    mcpwm_ll_operator_set_compare_value(MCPWM[this->mcpwm_unit], this->mcpwm_timer, this->mcpwm_io_signals_pwm, 0);
+    this->isr_is_running = NOT_MOVE_TO_DO;
+    xSemaphoreGiveFromISR(this->wait_isr_semaphore, &xHigherPriorityTaskWoken);
     return;
   }
 
@@ -83,20 +92,20 @@ void Stepper::real_isr_handler() {
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-void Stepper::move(int time_in_seconds, float final_angle) {
+void StepperMotor::move(uint16_t time_in_seconds, float final_angle) {
   if (xSemaphoreTake(this->wait_isr_semaphore, (TickType_t)portMAX_DELAY) == pdTRUE) {
     float current_angle = this->current_step * this->angle_per_pulse;
 
     if (current_angle >= final_angle) {
-      gpio_set_level(this->direction_pin, 1);
+      ESP_ERROR_CHECK(gpio_set_level(this->direction_pin, 1));
       this->current_direction = -1;
     } else {
-      gpio_set_level(this->direction_pin, 0);
+      ESP_ERROR_CHECK(gpio_set_level(this->direction_pin, 0));
       this->current_direction = 1;
     }
 
     this->dx = time_in_seconds * this->frequency;
-    this->dy = int((abs(current_angle - final_angle) / this->angle_per_pulse) + 0.5);
+    this->dy = uint32_t((abs(current_angle - final_angle) / this->angle_per_pulse) + 0.5);
 
     this->p = -this->dx / 2;
 

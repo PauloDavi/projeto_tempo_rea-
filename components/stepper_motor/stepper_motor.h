@@ -3,21 +3,19 @@
 
 #include "driver/gpio.h"
 #include "driver/mcpwm.h"
-// #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "hal/mcpwm_ll.h"
 
-static mcpwm_dev_t* MCPWM[2] = {&MCPWM0, &MCPWM1};
-
 typedef enum {
   HAS_MOVE_TO_DO,
   NOT_MOVE_TO_DO,
+  MOVEMENT_CANCELED
 } isr_state_t;
 
-class Stepper {
+class StepperMotor {
  public:
-  Stepper(
+  StepperMotor(
       gpio_num_t step_pin_number,
       gpio_num_t direction_pin_number,
       gpio_num_t enable_pin_number,
@@ -44,16 +42,16 @@ class Stepper {
 
   uint32_t duty_in_50_per_100;
 
-  int current_step;
-  int current_direction;
-  int microsteps;
+  int8_t current_direction;
+  int8_t microsteps;
+  uint16_t frequency;
+  int32_t current_step;
   float step;
   float reduction;
   float angle_per_pulse;
-  uint32_t frequency;
 
-  volatile int p;
-  volatile int dx;
-  volatile int dy;
-  volatile int y;
+  volatile int32_t p;
+  volatile uint32_t dx;
+  volatile uint32_t dy;
+  volatile uint32_t y;
 };
