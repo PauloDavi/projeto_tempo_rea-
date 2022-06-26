@@ -35,6 +35,7 @@ class StepperMotor {
   bool real_isr_handler();
   static bool isr_handler(mcpwm_unit_t mcpwm, mcpwm_capture_channel_id_t cap_sig, const cap_event_data_t* edata, void* arg);
   void move(uint16_t time_in_seconds, float final_angle);
+  void cancele_movement();
 
  private:
   isr_state_t isr_is_running;

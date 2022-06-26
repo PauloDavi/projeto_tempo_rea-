@@ -59,6 +59,10 @@ void StepperMotor::begin() {
   ESP_ERROR_CHECK(mcpwm_capture_enable_channel(this->mcpwm_unit, MCPWM_SELECT_CAP0, &isr_pwm_config));
 }
 
+void StepperMotor::cancele_movement() {
+  this->isr_is_running = MOVEMENT_CANCELED;
+}
+
 bool IRAM_ATTR StepperMotor::isr_handler(
     mcpwm_unit_t mcpwm,
     mcpwm_capture_channel_id_t cap_sig,

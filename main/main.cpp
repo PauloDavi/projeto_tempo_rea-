@@ -1,28 +1,35 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include <string>
-
 #include "display_control.h"
-#include "driver/gpio.h"
 #include "encoder.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
-#include "esp_system.h"
-#include "esp_vfs.h"
 #include "fontx.h"
-#include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "ili9340.h"
-#include "pngle.h"
 #include "stepper_motor.h"
 
 #define FONT_COLOR 0x0004
 
-static const char *TAG = "CPM Fisiotech";
+// static const char *TAG = "CPM Fisiotech";
+
+struct move_event_t {
+  uint8_t angle;
+  uint8_t duration;
+  uint8_t velocity;
+};
+QueueHandle_t move_event_queue = xQueueCreate(1, sizeof(move_event_t));
+static TaskHandle_t concel_movement_task_handle = NULL;
+
+void concel_movement_task(void *arg) {
+  StepperMotor *stepper_motor = (StepperMotor *)arg;
+
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    stepper_motor->cancele_movement();
+  }
+}
 
 void encoder_task(void *arg) {
   QueueHandle_t keyboard_event_queue = xQueueCreate(16, sizeof(key_events_t));
@@ -60,9 +67,32 @@ void encoder_task(void *arg) {
               summary_screen_action_button_click(&display_control, FONT_COLOR);
               break;
             case WARNING_SCREEN:
-              warning_screen_action_button_click(&display_control, FONT_COLOR);
+              switch (display_control.current_state) {
+                case BACK_BUTTON_ACTIVE:
+                  display_control.current_state = BACK_BUTTON_ACTIVE;
+                  display_control.current_display = START_SCREEN;
+                  display_control.angle = 0;
+                  display_control.duration = 0;
+                  display_control.velocity = 1;
+                  lcdDrawStartScreen(&display_control, FONT_COLOR);
+                  break;
+                case NEXT_BUTTON_ACTIVE:
+                  display_control.current_state = BACK_BUTTON_ACTIVE;
+                  display_control.current_display = COUNTDOWN_SCREEN;
+                  lcdDrawCountdownScreen(&display_control, FONT_COLOR);
+
+                  move_event_t move_event;
+                  move_event.angle = display_control.angle;
+                  move_event.duration = display_control.duration;
+                  move_event.velocity = display_control.velocity;
+                  xQueueSend(move_event_queue, (void *)&move_event, (TickType_t)0);
+                  break;
+                default:
+                  break;
+              }
               break;
             case SECTION_SCREEN:
+              xTaskNotifyGive(concel_movement_task_handle);
               section_screen_action_button_click(&display_control, FONT_COLOR);
               break;
             default:
@@ -118,6 +148,7 @@ void encoder_task(void *arg) {
 }
 
 void stepper_move(void *arg) {
+  move_event_t move_event;
   StepperMotor stepperMotor(
       GPIO_NUM_5,
       GPIO_NUM_18,
@@ -125,48 +156,34 @@ void stepper_move(void *arg) {
       32,
       1.8,
       4.07);
+  xTaskCreate(concel_movement_task, "concel_movement_task", 200, &stepperMotor, 7, &concel_movement_task_handle);
 
   stepperMotor.begin();
 
   for (;;) {
-    stepperMotor.move(10, 359);
-    vTaskDelay(1000 * 2 / portTICK_PERIOD_MS);
+    if (xQueueReceive(move_event_queue, &move_event, (TickType_t)portMAX_DELAY) == pdPASS) {
+      uint16_t move_quantity = ((move_event.duration * 60 * move_event.velocity / move_event.angle) + 0.5);
+      uint16_t time_of_move = ((move_event.duration * 60 / move_quantity) + 0.5);
 
-    stepperMotor.move(30, 0);
-    vTaskDelay(1000 * 2 / portTICK_PERIOD_MS);
+      for (uint16_t i = 0; i < move_quantity; i++) {
+        stepperMotor.move(time_of_move, move_event.angle);
+        stepperMotor.move(time_of_move, 0);
+      }
+    }
   }
 }
 
 extern "C" void app_main(void) {
-  ESP_LOGI(TAG, "Initializing SPIFFS");
-
   esp_vfs_spiffs_conf_t conf = {
       .base_path = "/spiffs",
       .partition_label = NULL,
       .max_files = 16,
       .format_if_mount_failed = true};
 
-  esp_err_t ret = esp_vfs_spiffs_register(&conf);
-
-  if (ret != ESP_OK) {
-    if (ret == ESP_FAIL) {
-      ESP_LOGE(TAG, "Failed to mount or format filesystem");
-    } else if (ret == ESP_ERR_NOT_FOUND) {
-      ESP_LOGE(TAG, "Failed to find SPIFFS partition");
-    } else {
-      ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
-    }
+  if (esp_vfs_spiffs_register(&conf) != ESP_OK) {
     return;
   }
 
-  size_t total = 0, used = 0;
-  ret = esp_spiffs_info(NULL, &total, &used);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
-  } else {
-    ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
-  }
-
   xTaskCreate(encoder_task, "encoder", 1024 * 8, NULL, 5, NULL);
-  xTaskCreate(stepper_move, "stepper_move", 1024 * 2, NULL, 10, NULL);
+  xTaskCreate(stepper_move, "stepper_move", 1024 * 2, NULL, 9, NULL);
 }
