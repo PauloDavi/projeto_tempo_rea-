@@ -18,7 +18,7 @@ StepperMotor::StepperMotor(
   this->microsteps = microsteps;
   this->step = step;
   this->reduction = reduction;
-  this->isr_is_running = NOT_MOVE_TO_DO;
+  this->isr_movement_state = NOT_MOVE_TO_DO;
   this->angle_per_pulse = step / (microsteps / reduction);
   this->frequency = frequency;
   this->mcpwm_unit = mcpwm_unit;
@@ -60,7 +60,7 @@ void StepperMotor::begin() {
 }
 
 void StepperMotor::cancele_movement() {
-  this->isr_is_running = MOVEMENT_CANCELED;
+  this->isr_movement_state = MOVEMENT_CANCELED;
 }
 
 bool IRAM_ATTR StepperMotor::isr_handler(
@@ -76,13 +76,13 @@ bool IRAM_ATTR StepperMotor::isr_handler(
 bool StepperMotor::real_isr_handler() {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-  if (this->isr_is_running == NOT_MOVE_TO_DO) {
+  if (this->isr_movement_state == NOT_MOVE_TO_DO) {
     return xHigherPriorityTaskWoken == pdTRUE;
   }
 
-  if (this->isr_is_running == MOVEMENT_CANCELED) {
+  if (this->isr_movement_state == MOVEMENT_CANCELED) {
     mcpwm_set_duty(this->mcpwm_unit, this->mcpwm_timer, this->mcpwm_generator, 0);
-    this->isr_is_running = NOT_MOVE_TO_DO;
+    this->isr_movement_state = NOT_MOVE_TO_DO;
     xSemaphoreGiveFromISR(this->wait_isr_semaphore, &xHigherPriorityTaskWoken);
     return xHigherPriorityTaskWoken == pdTRUE;
   }
@@ -102,7 +102,7 @@ bool StepperMotor::real_isr_handler() {
   mcpwm_set_duty(this->mcpwm_unit, this->mcpwm_timer, this->mcpwm_generator, duty);
 
   if (this->y == this->dy) {
-    this->isr_is_running = NOT_MOVE_TO_DO;
+    this->isr_movement_state = NOT_MOVE_TO_DO;
 
     mcpwm_set_duty(this->mcpwm_unit, this->mcpwm_timer, this->mcpwm_generator, 0);
     xSemaphoreGiveFromISR(this->wait_isr_semaphore, &xHigherPriorityTaskWoken);
@@ -130,6 +130,6 @@ void StepperMotor::move(uint16_t time_in_seconds, float final_angle) {
 
     this->y = 0;
 
-    this->isr_is_running = HAS_MOVE_TO_DO;
+    this->isr_movement_state = HAS_MOVE_TO_DO;
   }
 }

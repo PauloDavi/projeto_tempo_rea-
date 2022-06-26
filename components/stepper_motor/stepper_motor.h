@@ -38,7 +38,7 @@ class StepperMotor {
   void cancele_movement();
 
  private:
-  isr_state_t isr_is_running;
+  isr_state_t isr_movement_state;
   SemaphoreHandle_t wait_isr_semaphore;
 
   gpio_num_t step_pin;

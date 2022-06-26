@@ -162,8 +162,9 @@ void stepper_move(void *arg) {
 
   for (;;) {
     if (xQueueReceive(move_event_queue, &move_event, (TickType_t)portMAX_DELAY) == pdPASS) {
-      uint16_t move_quantity = ((move_event.duration * 60 * move_event.velocity / move_event.angle) + 0.5);
-      uint16_t time_of_move = ((move_event.duration * 60 / move_quantity) + 0.5);
+      uint16_t move_time_in_seconds = move_event.duration * 60;
+      uint16_t move_quantity = ((move_time_in_seconds * move_event.velocity / move_event.angle) + 0.5);
+      uint16_t time_of_move = ((move_time_in_seconds / move_quantity) + 0.5);
 
       for (uint16_t i = 0; i < move_quantity; i++) {
         stepperMotor.move(time_of_move, move_event.angle);
