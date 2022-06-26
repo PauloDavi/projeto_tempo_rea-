@@ -117,6 +117,26 @@ void encoder_task(void *arg) {
   }
 }
 
+void stepper_move(void *arg) {
+  StepperMotor stepperMotor(
+      GPIO_NUM_5,
+      GPIO_NUM_18,
+      GPIO_NUM_19,
+      32,
+      1.8,
+      4.07);
+
+  stepperMotor.begin();
+
+  for (;;) {
+    stepperMotor.move(10, 359);
+    vTaskDelay(1000 * 2 / portTICK_PERIOD_MS);
+
+    stepperMotor.move(30, 0);
+    vTaskDelay(1000 * 2 / portTICK_PERIOD_MS);
+  }
+}
+
 extern "C" void app_main(void) {
   ESP_LOGI(TAG, "Initializing SPIFFS");
 
@@ -126,8 +146,6 @@ extern "C" void app_main(void) {
       .max_files = 16,
       .format_if_mount_failed = true};
 
-  // Use settings defined above toinitialize and mount SPIFFS filesystem.
-  // Note: esp_vfs_spiffs_register is anall-in-one convenience function.
   esp_err_t ret = esp_vfs_spiffs_register(&conf);
 
   if (ret != ESP_OK) {
@@ -150,4 +168,5 @@ extern "C" void app_main(void) {
   }
 
   xTaskCreate(encoder_task, "encoder", 1024 * 8, NULL, 5, NULL);
+  xTaskCreate(stepper_move, "stepper_move", 1024 * 2, NULL, 10, NULL);
 }

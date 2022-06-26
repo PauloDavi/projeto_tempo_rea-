@@ -1,7 +1,5 @@
 #include "stepper_motor.h"
 
-static mcpwm_dev_t* MCPWM[2] = {&MCPWM0, &MCPWM1};
-
 StepperMotor::StepperMotor(
     gpio_num_t step_pin_number,
     gpio_num_t direction_pin_number,
@@ -9,7 +7,11 @@ StepperMotor::StepperMotor(
     int microsteps,
     float step,
     float reduction,
-    int frequency = 10 * 1000) {
+    uint16_t frequency,
+    mcpwm_unit_t mcpwm_unit,
+    mcpwm_timer_t mcpwm_timer,
+    mcpwm_generator_t mcpwm_generator,
+    mcpwm_io_signals_t mcpwm_io_signals) {
   this->step_pin = step_pin_number;
   this->direction_pin = direction_pin_number;
   this->enable_pin = enable_pin_number;
@@ -18,8 +20,11 @@ StepperMotor::StepperMotor(
   this->reduction = reduction;
   this->isr_is_running = NOT_MOVE_TO_DO;
   this->angle_per_pulse = step / (microsteps / reduction);
-  this->duty_in_50_per_100 = mcpwm_ll_timer_get_peak(MCPWM[this->mcpwm_unit], this->mcpwm_timer, false) * 50 / 100;
   this->frequency = frequency;
+  this->mcpwm_unit = mcpwm_unit;
+  this->mcpwm_timer = mcpwm_timer;
+  this->mcpwm_generator = mcpwm_generator;
+  this->mcpwm_io_signals = mcpwm_io_signals;
 
   this->wait_isr_semaphore = xSemaphoreCreateBinary();
   xSemaphoreGive(this->wait_isr_semaphore);
@@ -35,7 +40,7 @@ StepperMotor::StepperMotor(
 }
 
 void StepperMotor::begin() {
-  ESP_ERROR_CHECK(mcpwm_gpio_init(this->mcpwm_unit, this->mcpwm_io_signals_pwm, this->step_pin));
+  ESP_ERROR_CHECK(mcpwm_gpio_init(this->mcpwm_unit, this->mcpwm_io_signals, this->step_pin));
 
   mcpwm_config_t pwm_config;
   pwm_config.frequency = this->frequency;
@@ -44,30 +49,40 @@ void StepperMotor::begin() {
   pwm_config.duty_mode = MCPWM_DUTY_MODE_0;
 
   ESP_ERROR_CHECK(mcpwm_init(this->mcpwm_unit, this->mcpwm_timer, &pwm_config));
-  ESP_ERROR_CHECK(mcpwm_isr_register(this->mcpwm_unit, this->isr_handler, this, ESP_INTR_FLAG_IRAM, NULL));
-  mcpwm_ll_intr_enable_timer_tez(MCPWM[this->mcpwm_unit], this->mcpwm_timer, true);
+
+  mcpwm_capture_config_t isr_pwm_config;
+  isr_pwm_config.cap_edge = MCPWM_POS_EDGE;
+  isr_pwm_config.cap_prescale = 1;
+  isr_pwm_config.capture_cb = this->isr_handler;
+  isr_pwm_config.user_data = this;
+
+  ESP_ERROR_CHECK(mcpwm_capture_enable_channel(this->mcpwm_unit, MCPWM_SELECT_CAP0, &isr_pwm_config));
 }
 
-void IRAM_ATTR StepperMotor::isr_handler(void* arg) {
-  stepper_motor* stepper_motor = (StepperMotor*)arg;
-  stepper_motor->real_isr_handler();
+bool IRAM_ATTR StepperMotor::isr_handler(
+    mcpwm_unit_t mcpwm,
+    mcpwm_capture_channel_id_t cap_sig,
+    const cap_event_data_t* edata,
+    void* arg) {
+  StepperMotor* stepper_motor = (StepperMotor*)arg;
+
+  return stepper_motor->real_isr_handler();
 }
 
-void StepperMotor::real_isr_handler() {
-  mcpwm_ll_intr_clear_timer_tez_status(MCPWM[this->mcpwm_unit], 1);
+bool StepperMotor::real_isr_handler() {
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
   if (this->isr_is_running == NOT_MOVE_TO_DO) {
-    return;
+    return xHigherPriorityTaskWoken == pdTRUE;
   }
 
   if (this->isr_is_running == MOVEMENT_CANCELED) {
-    mcpwm_ll_operator_set_compare_value(MCPWM[this->mcpwm_unit], this->mcpwm_timer, this->mcpwm_io_signals_pwm, 0);
+    mcpwm_set_duty(this->mcpwm_unit, this->mcpwm_timer, this->mcpwm_generator, 0);
     this->isr_is_running = NOT_MOVE_TO_DO;
     xSemaphoreGiveFromISR(this->wait_isr_semaphore, &xHigherPriorityTaskWoken);
-    return;
+    return xHigherPriorityTaskWoken == pdTRUE;
   }
 
-  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   uint32_t duty = 0;
 
   this->p += this->dy;
@@ -77,19 +92,19 @@ void StepperMotor::real_isr_handler() {
     this->current_step += current_direction;
     this->p -= this->dx;
 
-    duty = this->duty_in_50_per_100;
+    duty = 50;
   }
 
-  mcpwm_ll_operator_set_compare_value(MCPWM[this->mcpwm_unit], this->mcpwm_timer, this->mcpwm_io_signals_pwm, duty);
+  mcpwm_set_duty(this->mcpwm_unit, this->mcpwm_timer, this->mcpwm_generator, duty);
 
   if (this->y == this->dy) {
     this->isr_is_running = NOT_MOVE_TO_DO;
 
-    mcpwm_ll_operator_set_compare_value(MCPWM[this->mcpwm_unit], this->mcpwm_timer, this->mcpwm_io_signals_pwm, 0);
+    mcpwm_set_duty(this->mcpwm_unit, this->mcpwm_timer, this->mcpwm_generator, 0);
     xSemaphoreGiveFromISR(this->wait_isr_semaphore, &xHigherPriorityTaskWoken);
   }
 
-  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+  return xHigherPriorityTaskWoken == pdTRUE;
 }
 
 void StepperMotor::move(uint16_t time_in_seconds, float final_angle) {

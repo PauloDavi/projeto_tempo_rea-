@@ -17,8 +17,6 @@ Encoder::Encoder(
   this->btn_counter = 0;
   this->clk_state = 0;
 
-  ESP_LOGI("TAG", "Inicio");
-
   ESP_ERROR_CHECK(gpio_set_pull_mode(this->pin_btn, GPIO_PULLUP_ONLY));
   ESP_ERROR_CHECK(gpio_set_direction(this->pin_btn, GPIO_MODE_INPUT));
 
@@ -29,24 +27,6 @@ Encoder::Encoder(
   ESP_ERROR_CHECK(gpio_set_direction(this->pin_clk, GPIO_MODE_INPUT));
 
   this->btn_state = gpio_get_level(this->pin_btn);
-  ESP_LOGI("TAG", "GPIO");
-
-  // timer_config_t timer_config = {
-  //     .alarm_en = TIMER_ALARM_EN,
-  //     .counter_en = TIMER_PAUSE,
-  //     .intr_type = TIMER_INTR_LEVEL,
-  //     .counter_dir = TIMER_COUNT_UP,
-  //     .auto_reload = TIMER_AUTORELOAD_MAX,
-  //     .divider = uint32_t(APB_CLK_FREQ / this->frequency),
-  // };
-
-  // ESP_ERROR_CHECK(timer_init(this->timer_group, this->timer_id, &timer_config));
-  // ESP_ERROR_CHECK(timer_set_counter_value(this->timer_group, this->timer_id, 0));
-  // ESP_ERROR_CHECK(timer_set_alarm_value(this->timer_group, this->timer_id, 1));
-  // ESP_ERROR_CHECK(timer_isr_callback_add(this->timer_group, this->timer_id, isr_handler, this, 0));
-  // ESP_ERROR_CHECK(timer_enable_intr(this->timer_group, this->timer_id));
-
-  ESP_LOGI("TAG", "Inicio timer");
 
   gptimer_config_t timer_config;
   timer_config.clk_src = GPTIMER_CLK_SRC_DEFAULT;
@@ -64,7 +44,6 @@ Encoder::Encoder(
   ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &(this->gptimer)));
   ESP_ERROR_CHECK(gptimer_set_alarm_action(this->gptimer, &alarm_config));
   ESP_ERROR_CHECK(gptimer_register_event_callbacks(this->gptimer, &cbs, this));
-  ESP_LOGI("TAG", "timer");
 }
 
 void Encoder::init() {
